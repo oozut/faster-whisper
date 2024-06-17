@@ -67,6 +67,14 @@ class Tokenizer:
     def no_timestamps(self) -> int:
         return self.tokenizer.token_to_id("<|notimestamps|>")
 
+    def timestamp_to_token(self, timestamp: float) -> str:
+        """Convert a timestamp to a token in the format <|x.xx|>"""
+        if timestamp < 0 or timestamp > 30:
+            raise ValueError("Timestamp must be between 0 and 30")
+        timestamp = round(timestamp / 0.02) * 0.02
+        timestamp_str = "{:.2f}".format(timestamp)
+        return self.tokenizer.token_to_id(f"<|{timestamp_str}|>")
+
     @property
     def timestamp_begin(self) -> int:
         return self.no_timestamps + 1
