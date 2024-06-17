@@ -58,7 +58,7 @@ class TranscriptionOptions(NamedTuple):
     prompt_reset_on_temperature: float
     temperatures: List[float]
     initial_prompt: Optional[Union[str, Iterable[int]]]
-    prefix: Optional[str]
+    prefix: Optional[Union[str, List[Word]]] = None,
     suppress_blank: bool
     suppress_tokens: Optional[List[int]]
     without_timestamps: bool
@@ -223,7 +223,7 @@ class WhisperModel:
         condition_on_previous_text: bool = True,
         prompt_reset_on_temperature: float = 0.5,
         initial_prompt: Optional[Union[str, Iterable[int]]] = None,
-        prefix: Optional[str] = None,
+        prefix: Optional[Union[str, List[Word]]] = None,
         suppress_blank: bool = True,
         suppress_tokens: Optional[List[int]] = [-1],
         without_timestamps: bool = False,
@@ -274,7 +274,7 @@ class WhisperModel:
             Arg has effect only if condition_on_previous_text is True.
           initial_prompt: Optional text string or iterable of token ids to provide as a
             prompt for the first window.
-          prefix: Optional text to provide as a prefix for the first window.
+          prefix: Optional text or list of Word to provide as a prefix for the first window.
           suppress_blank: Suppress blank outputs at the beginning of the sampling.
           suppress_tokens: List of token IDs to suppress. -1 will suppress a default set
             of symbols as defined in the model config.json file.
@@ -431,6 +431,8 @@ class WhisperModel:
             self.model.is_multilingual,
             task=task,
             language=language,
+            without_timestamps=without_timestamps,
+            max_length = self.max_length
         )
 
         options = TranscriptionOptions(
@@ -522,8 +524,7 @@ class WhisperModel:
 
         if options.initial_prompt is not None:
             if isinstance(options.initial_prompt, str):
-                initial_prompt = " " + options.initial_prompt.strip()
-                initial_prompt_tokens = tokenizer.encode(initial_prompt)
+                initial_prompt_tokens = tokenizer.encode(options.initial_prompt)
                 all_tokens.extend(initial_prompt_tokens)
             else:
                 all_tokens.extend(options.initial_prompt)
@@ -961,7 +962,7 @@ class WhisperModel:
         tokenizer: Tokenizer,
         previous_tokens: List[int],
         without_timestamps: bool = False,
-        prefix: Optional[str] = None,
+        prefix: Optional[Union[str, List[Word]]] = None,
         hotwords: Optional[str] = None,
     ) -> List[int]:
         prompt = []
@@ -969,9 +970,7 @@ class WhisperModel:
         if previous_tokens or (hotwords and not prefix):
             prompt.append(tokenizer.sot_prev)
             if hotwords and not prefix:
-                hotwords_tokens = tokenizer.encode(" " + hotwords.strip())
-                if len(hotwords_tokens) >= self.max_length // 2:
-                    hotwords_tokens = hotwords_tokens[: self.max_length // 2 - 1]
+                hotwords_tokens = tokenizer.encode(hotwords)
                 prompt.extend(hotwords_tokens)
             if previous_tokens:
                 prompt.extend(previous_tokens[-(self.max_length // 2 - 1) :])
@@ -982,11 +981,7 @@ class WhisperModel:
             prompt.append(tokenizer.no_timestamps)
 
         if prefix:
-            prefix_tokens = tokenizer.encode(" " + prefix.strip())
-            if len(prefix_tokens) >= self.max_length // 2:
-                prefix_tokens = prefix_tokens[: self.max_length // 2 - 1]
-            if not without_timestamps:
-                prompt.append(tokenizer.timestamp_begin)
+            prefix_tokens = tokenizer.encode(prefix)
             prompt.extend(prefix_tokens)
 
         return prompt

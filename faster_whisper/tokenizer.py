@@ -1,43 +1,49 @@
 import string
 
 from functools import cached_property
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union, Callable
 
 import tokenizers
+
+from transcribe import Word
 
 
 class Tokenizer:
     """Simple wrapper around a tokenizers.Tokenizer."""
 
-    def __init__(
-        self,
-        tokenizer: tokenizers.Tokenizer,
-        multilingual: bool,
-        task: Optional[str] = None,
-        language: Optional[str] = None,
-    ):
-        self.tokenizer = tokenizer
+def __init__(
+    self,
+    tokenizer: tokenizers.Tokenizer,
+    multilingual: bool,
+    task: Optional[str] = None,
+    language: Optional[str] = None,
+    with_timestamp: bool = False,
+    max_length: int = 448,
+):
+    self.tokenizer = tokenizer
+    self.with_timestamp = with_timestamp
+    self.max_length = max_length
 
-        if multilingual:
-            if task not in _TASKS:
-                raise ValueError(
-                    "'%s' is not a valid task (accepted tasks: %s)"
-                    % (task, ", ".join(_TASKS))
-                )
+    if multilingual:
+        if task not in _TASKS:
+            raise ValueError(
+                "'%s' is not a valid task (accepted tasks: %s)"
+                % (task, ", ".join(_TASKS))
+            )
 
-            if language not in _LANGUAGE_CODES:
-                raise ValueError(
-                    "'%s' is not a valid language code (accepted language codes: %s)"
-                    % (language, ", ".join(_LANGUAGE_CODES))
-                )
+        if language not in _LANGUAGE_CODES:
+            raise ValueError(
+                "'%s' is not a valid language code (accepted language codes: %s)"
+                % (language, ", ".join(_LANGUAGE_CODES))
+            )
 
-            self.task = self.tokenizer.token_to_id("<|%s|>" % task)
-            self.language = self.tokenizer.token_to_id("<|%s|>" % language)
-            self.language_code = language
-        else:
-            self.task = None
-            self.language = None
-            self.language_code = "en"
+        self.task = self.tokenizer.token_to_id("<|%s|>" % task)
+        self.language = self.tokenizer.token_to_id("<|%s|>" % language)
+        self.language_code = language
+    else:
+        self.task = None
+        self.language = None
+        self.language_code = "en"
 
     @cached_property
     def transcribe(self) -> int:
@@ -72,8 +78,7 @@ class Tokenizer:
         if timestamp < 0 or timestamp > 30:
             raise ValueError("Timestamp must be between 0 and 30")
         timestamp = round(timestamp / 0.02) * 0.02
-        timestamp_str = "{:.2f}".format(timestamp)
-        return self.tokenizer.token_to_id(f"<|{timestamp_str}|>")
+        return f"<|{timestamp:.2f}|>"
 
     @property
     def timestamp_begin(self) -> int:
@@ -91,8 +96,24 @@ class Tokenizer:
 
         return sequence
 
-    def encode(self, text: str) -> List[int]:
-        return self.tokenizer.encode(text, add_special_tokens=False).ids
+    def encode(self, text: Union[str,List[Word]]) -> List[int]:
+        if isinstance(text, str):
+            prefix_tokens = self.tokenizer.encode(" " + text.strip(), add_special_tokens=False).ids
+            if len(prefix_tokens) >= self.max_length // 2:
+                prefix_tokens = prefix_tokens[: self.max_length // 2 - 1]
+            prefix_tokens.insert(0, self.timestamp_begin)
+        if isinstance(text, list):
+            prefix_tokens = self.encode_with_timestamps(text)
+
+    def encode_with_timestamps(self, words: List[Word]) -> List[int]:
+        encode_words: Callable[[List[Word]], List[str]] = lambda word: self.timestamp_to_token(word.start) + word.word + self.timestamp_to_token(word.end)
+        if self.language_code in {"zh", "ja", "th", "lo", "my", "yue"}:
+            # These languages don't typically use spaces, so it is 
+            # difficult to split words
+            return "".join(map(encode_words))
+        return " ".join(map(encode_words))
+        
+
 
     def decode(self, tokens: List[int]) -> str:
         text_tokens = [token for token in tokens if token < self.eot]
