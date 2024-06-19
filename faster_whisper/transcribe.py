@@ -58,7 +58,7 @@ class TranscriptionOptions(NamedTuple):
     prompt_reset_on_temperature: float
     temperatures: List[float]
     initial_prompt: Optional[Union[str, Iterable[int]]]
-    prefix: Optional[Union[str, List[Word]]] = None,
+    prefix: Optional[Union[str, List[Word]]]
     suppress_blank: bool
     suppress_tokens: Optional[List[int]]
     without_timestamps: bool
