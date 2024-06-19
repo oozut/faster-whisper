@@ -1,15 +1,21 @@
 import string
 
 from functools import cached_property
-from typing import List, Optional, Tuple, Union, Callable
+from typing import List, Optional, Tuple, Union, Callable, NamedTuple
 
 import tokenizers
 
-from transcribe import Word
+
+class Word(NamedTuple):
+    start: float
+    end: float
+    word: str
+    probability: float
 
 
 class Tokenizer:
     """Simple wrapper around a tokenizers.Tokenizer."""
+
 
 def __init__(
     self,
@@ -96,9 +102,11 @@ def __init__(
 
         return sequence
 
-    def encode(self, text: Union[str,List[Word]]) -> List[int]:
+    def encode(self, text: Union[str, List[Word]]) -> List[int]:
         if isinstance(text, str):
-            prefix_tokens = self.tokenizer.encode(" " + text.strip(), add_special_tokens=False).ids
+            prefix_tokens = self.tokenizer.encode(
+                " " + text.strip(), add_special_tokens=False
+            ).ids
             if len(prefix_tokens) >= self.max_length // 2:
                 prefix_tokens = prefix_tokens[: self.max_length // 2 - 1]
             prefix_tokens.insert(0, self.timestamp_begin)
@@ -106,14 +114,16 @@ def __init__(
             prefix_tokens = self.encode_with_timestamps(text)
 
     def encode_with_timestamps(self, words: List[Word]) -> List[int]:
-        encode_words: Callable[[List[Word]], List[str]] = lambda word: self.timestamp_to_token(word.start) + word.word + self.timestamp_to_token(word.end)
+        encode_words: Callable[[List[Word]], List[str]] = (
+            lambda word: self.timestamp_to_token(word.start)
+            + word.word
+            + self.timestamp_to_token(word.end)
+        )
         if self.language_code in {"zh", "ja", "th", "lo", "my", "yue"}:
-            # These languages don't typically use spaces, so it is 
+            # These languages don't typically use spaces, so it is
             # difficult to split words
             return "".join(map(encode_words))
         return " ".join(map(encode_words))
-        
-
 
     def decode(self, tokens: List[int]) -> str:
         text_tokens = [token for token in tokens if token < self.eot]
