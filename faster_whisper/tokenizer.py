@@ -16,40 +16,39 @@ class Word(NamedTuple):
 class Tokenizer:
     """Simple wrapper around a tokenizers.Tokenizer."""
 
+    def __init__(
+        self,
+        tokenizer: tokenizers.Tokenizer,
+        multilingual: bool,
+        task: Optional[str] = None,
+        language: Optional[str] = None,
+        without_timestamps: bool = False,
+        max_length: int = 448,
+    ):
+        self.tokenizer = tokenizer
+        self.without_timestamps = without_timestamps
+        self.max_length = max_length
 
-def __init__(
-    self,
-    tokenizer: tokenizers.Tokenizer,
-    multilingual: bool,
-    task: Optional[str] = None,
-    language: Optional[str] = None,
-    with_timestamp: bool = False,
-    max_length: int = 448,
-):
-    self.tokenizer = tokenizer
-    self.with_timestamp = with_timestamp
-    self.max_length = max_length
+        if multilingual:
+            if task not in _TASKS:
+                raise ValueError(
+                    "'%s' is not a valid task (accepted tasks: %s)"
+                    % (task, ", ".join(_TASKS))
+                )
 
-    if multilingual:
-        if task not in _TASKS:
-            raise ValueError(
-                "'%s' is not a valid task (accepted tasks: %s)"
-                % (task, ", ".join(_TASKS))
-            )
+            if language not in _LANGUAGE_CODES:
+                raise ValueError(
+                    "'%s' is not a valid language code (accepted language codes: %s)"
+                    % (language, ", ".join(_LANGUAGE_CODES))
+                )
 
-        if language not in _LANGUAGE_CODES:
-            raise ValueError(
-                "'%s' is not a valid language code (accepted language codes: %s)"
-                % (language, ", ".join(_LANGUAGE_CODES))
-            )
-
-        self.task = self.tokenizer.token_to_id("<|%s|>" % task)
-        self.language = self.tokenizer.token_to_id("<|%s|>" % language)
-        self.language_code = language
-    else:
-        self.task = None
-        self.language = None
-        self.language_code = "en"
+            self.task = self.tokenizer.token_to_id("<|%s|>" % task)
+            self.language = self.tokenizer.token_to_id("<|%s|>" % language)
+            self.language_code = language
+        else:
+            self.task = None
+            self.language = None
+            self.language_code = "en"
 
     @cached_property
     def transcribe(self) -> int:
@@ -79,13 +78,6 @@ def __init__(
     def no_timestamps(self) -> int:
         return self.tokenizer.token_to_id("<|notimestamps|>")
 
-    def timestamp_to_token(self, timestamp: float) -> str:
-        """Convert a timestamp to a token in the format <|x.xx|>"""
-        if timestamp < 0 or timestamp > 30:
-            raise ValueError("Timestamp must be between 0 and 30")
-        timestamp = round(timestamp / 0.02) * 0.02
-        return f"<|{timestamp:.2f}|>"
-
     @property
     def timestamp_begin(self) -> int:
         return self.no_timestamps + 1
@@ -101,6 +93,13 @@ def __init__(
             sequence.append(self.task)
 
         return sequence
+    
+    def timestamp_to_token(self, timestamp: float) -> str:
+        """Convert a timestamp to a token in the format <|x.xx|>"""
+        if timestamp < 0 or timestamp > 30:
+            raise ValueError("Timestamp must be between 0 and 30")
+        timestamp = round(timestamp / 0.02) * 0.02
+        return f"<|{timestamp:.2f}|>"
 
     def encode(self, text: Union[str, List[Word]]) -> List[int]:
         if isinstance(text, str):
@@ -109,15 +108,31 @@ def __init__(
             ).ids
             if len(prefix_tokens) >= self.max_length // 2:
                 prefix_tokens = prefix_tokens[: self.max_length // 2 - 1]
-            prefix_tokens.insert(0, self.timestamp_begin)
+            if not self.without_timestamps:
+                prefix_tokens.insert(0, self.timestamp_begin)
+            return prefix_tokens
         if isinstance(text, list):
-            prefix_tokens = self.encode_with_timestamps(text)
+            if self.without_timestamps:
+                return self.encode_without_timestamps(text)
+            return self.encode_with_timestamps(text)
+        
+        raise ValueError("Text must be a string or a list of words")
 
     def encode_with_timestamps(self, words: List[Word]) -> List[int]:
         encode_words: Callable[[List[Word]], List[str]] = (
             lambda word: self.timestamp_to_token(word.start)
             + word.word
             + self.timestamp_to_token(word.end)
+        )
+        if self.language_code in {"zh", "ja", "th", "lo", "my", "yue"}:
+            # These languages don't typically use spaces, so it is
+            # difficult to split words
+            return "".join(map(encode_words))
+        return " ".join(map(encode_words))
+    
+    def encode_without_timestamps(self, words: List[Word]) -> List[int]:
+        encode_words: Callable[[List[Word]], List[str]] = (
+            lambda word:word.word
         )
         if self.language_code in {"zh", "ja", "th", "lo", "my", "yue"}:
             # These languages don't typically use spaces, so it is
